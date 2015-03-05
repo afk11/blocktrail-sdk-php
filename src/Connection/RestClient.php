@@ -3,6 +3,8 @@
 namespace Blocktrail\SDK\Connection;
 
 use GuzzleHttp\Client as Guzzle;
+use GuzzleHttp\Event\BeforeEvent;
+use GuzzleHttp\Event\CompleteEvent;
 use GuzzleHttp\Message\ResponseInterface;
 use GuzzleHttp\Post\PostBodyInterface;
 use GuzzleHttp\Query;
@@ -18,6 +20,7 @@ use Blocktrail\SDK\Connection\Exceptions\EmptyResponse;
 use Blocktrail\SDK\Connection\Exceptions\InvalidCredentials;
 use Blocktrail\SDK\Connection\Exceptions\MissingEndpoint;
 use Blocktrail\SDK\Connection\Exceptions\GenericHTTPError;
+use Monolog\Logger;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
@@ -43,6 +46,13 @@ class RestClient {
      */
     protected $verboseErrors = false;
 
+    private $timeIt = null;
+
+    /**
+     * @var Logger|null
+     */
+    private $logger = null;
+
     public function __construct($apiEndpoint, $apiVersion, $apiKey, $apiSecret) {
         $this->guzzle = new Guzzle(array(
             'base_url' => $apiEndpoint,
@@ -63,6 +73,19 @@ class RestClient {
 
         $this->apiKey = $apiKey;
 
+        $this->guzzle->getEmitter()->on('before', function (BeforeEvent $e) {
+            $this->timeIt = microtime(true);
+            if ($this->logger) {
+                $this->logger->debug("BEFORE {$e->getRequest()->getUrl()}");
+            }
+        });
+
+        $this->guzzle->getEmitter()->on('complete', function (CompleteEvent $e) {
+            if ($this->logger) {
+                $this->logger->debug("COMPLETE {$e->getRequest()->getUrl()} " . (microtime(true) - $this->timeIt));
+            }
+        });
+
         $this->guzzle->getEmitter()->attach(new RequestSubscriber(
             new Context([
                 'keys' => [$apiKey => $apiSecret],
@@ -79,6 +102,15 @@ class RestClient {
      */
     public function setCurlDebugging($debug = true) {
         $this->guzzle->setDefaultOption('debug', $debug);
+    }
+
+    /**
+     * set a logger to handle debug info
+     *
+     * @param Logger $logger
+     */
+    public function setLogger(Logger $logger) {
+        $this->logger = $logger;
     }
 
     /**
